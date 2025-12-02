@@ -1,11 +1,13 @@
 """Ingest TeSS."""
 
 from collections import Counter
+from typing import Any
 
 import click
 import pyobo
 import ssslm
 from dalia_dif.namespace import BIBO, HCRT, MODALIA, SPDX_LICENSE
+from dalia_dif.dif13
 from dalia_ingest.model import (
     Author,
     EducationalResource,
@@ -144,7 +146,7 @@ LICENSES: dict[str, URIRef] = {
 unknown_resource_type: Counter[str] = Counter()
 
 
-def _get_resource_types(attributes) -> list[URIRef]:
+def _get_resource_types(attributes: dict[str, Any]) -> list[URIRef]:
     rv = []
     for resource_type in attributes.get("resource-type", []):
         resource_type = resource_type.lower().strip()
@@ -161,7 +163,7 @@ def _get_resource_types(attributes) -> list[URIRef]:
 unknown_difficulty = set()
 
 
-def _get_difficulty_levels(attributes) -> list[URIRef]:
+def _get_difficulty_levels(attributes: dict[str, Any]) -> list[URIRef]:
     difficulty_level = attributes.get("difficulty-level")
     if not difficulty_level:
         return []
@@ -178,7 +180,9 @@ def _get_difficulty_levels(attributes) -> list[URIRef]:
     return []
 
 
-def _get_authors(attributes, ror_grounder: ssslm.Grounder) -> list[Author | Organization]:
+def _get_authors(
+    attributes: dict[str, Any], ror_grounder: ssslm.Grounder
+) -> list[Author | Organization]:
     return resolve_authors(attributes.get("authors", []), ror_grounder=ror_grounder)
 
 

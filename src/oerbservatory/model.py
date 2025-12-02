@@ -39,7 +39,7 @@ class Author(BaseModel):
 
     def get_name(self) -> str | None:
         """Get the name from ORCID if possible, otherwise fall back to local."""
-        if self.orcid and (name := orcid_downloader.get_name(self.orcid)):
+        if self.orcid and (name := orcid_downloader.get_name(self.orcid)) is not None:
             return name
         return self.name
 

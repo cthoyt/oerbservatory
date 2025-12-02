@@ -108,6 +108,8 @@ def _process_author(e: AuthorDIF13 | OrganizationDIF13) -> Author | Organization
                 ror=e.ror,
                 wikidata=e.wikidata,
             )
+        case _:
+            raise TypeError
 
 
 def _omni_process_row(path: Path, idx: int, row: dict[str, str]) -> EducationalResource | None:

@@ -12,9 +12,6 @@ from dalia_dif.dif13 import (
     OrganizationDIF13,
     parse_dif13_row,
 )
-from pydantic import ByteSize
-from tqdm import tqdm
-
 from dalia_ingest.model import (
     OUTPUT_DIR,
     Author,
@@ -25,7 +22,9 @@ from dalia_ingest.model import (
     write_resources_tfidf,
     write_sqlite_fti,
 )
-from dalia_ingest.utils import get_dif13_paths, DALIA_MODULE
+from dalia_ingest.utils import DALIA_MODULE, get_dif13_paths
+from pydantic import ByteSize
+from tqdm import tqdm
 
 __all__ = [
     "get_dalia",

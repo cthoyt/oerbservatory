@@ -9,10 +9,6 @@ import pyobo
 import requests
 from curies import Reference
 from dalia_dif.utils import cleanup_languages
-from rdflib import SDO, URIRef
-from tabulate import tabulate
-from tqdm import tqdm
-
 from dalia_ingest.model import (
     SPDX_LICENSE,
     EducationalResource,
@@ -21,6 +17,9 @@ from dalia_ingest.model import (
     write_resources_jsonl,
 )
 from dalia_ingest.utils import DALIA_MODULE
+from rdflib import SDO, URIRef
+from tabulate import tabulate
+from tqdm import tqdm
 
 __all__ = [
     "get_oerhub",
@@ -69,7 +68,7 @@ RESOURCE_TYPES = {
 }
 
 
-def get_oerhub() -> list[EducationalResource]:
+def get_oerhub() -> list[EducationalResource]:  # noqa:C901
     """Get processed OERs from OERhub."""
     data = get_oerhub_raw()
     hits = data["data"]["hits"]["hits"]
@@ -197,7 +196,7 @@ def _echo_counter(c: Counter, title: str | None = None) -> None:
     tqdm.write(tabulate(c.most_common(), headers=["key", "count"]) + "\n\n")
 
 
-def _clean_d(d: dict[str, Any] | None) -> dict[str, str]:
+def _clean_d(d: dict[str, Any] | None) -> dict[str, str] | None:
     if d is None:
         return None
     if "en" in d and "en_us_wp" in d:

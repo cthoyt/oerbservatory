@@ -4,14 +4,8 @@ from collections import Counter
 
 import click
 import pyobo
-import rdflib
 import ssslm
 from dalia_dif.namespace import BIBO, HCRT, MODALIA, SPDX_LICENSE
-from rdflib import SDO, Namespace, URIRef
-from tabulate import tabulate
-from tess_downloader import INSTANCES, TeSSClient
-from tqdm import tqdm
-
 from dalia_ingest.model import (
     Author,
     EducationalResource,
@@ -20,6 +14,10 @@ from dalia_ingest.model import (
     write_resources_jsonl,
 )
 from dalia_ingest.utils import DALIA_MODULE
+from rdflib import SDO, URIRef
+from tabulate import tabulate
+from tess_downloader import INSTANCES, TeSSClient
+from tqdm import tqdm
 
 __all__ = [
     "get_elixir",

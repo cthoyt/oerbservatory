@@ -2,6 +2,7 @@
 
 import datetime
 import sqlite3
+from collections.abc import Sequence
 from contextlib import closing
 from pathlib import Path
 from uuid import uuid4
@@ -94,7 +95,7 @@ class EducationalResource(BaseModel):
     derived_from: str | None = Field(
         None,
         description="When deriving this OER object from an external OER resource, "
-                    "keep the external URI/ID",
+        "keep the external URI/ID",
     )
 
     @property
@@ -200,6 +201,7 @@ These can be used for downstream tasks like:
 
 """
 
+
 def write_resources_sentence_transformer(
     resources: list[EducationalResource],
     vectors_path: Path,
@@ -230,8 +232,8 @@ def _xxx(
     resources: list[EducationalResource],
     vectors_path: Path,
     similarities_path: Path,
-    cutoff=None,
-    columns=None,
+    cutoff: float | None = None,
+    columns: list[str] | None = None,
 ) -> None:
     from sklearn.metrics.pairwise import cosine_similarity
 
@@ -272,6 +274,8 @@ def _xxx(
 
 def write_sqlite_fti(resources: list[EducationalResource], path: Path) -> None:
     """Write a SQLite database with a full text index."""
+    from dalia_dif.dif13.export.fti import _dif13_df_to_sqlite
+
     path.unlink(missing_ok=True)
 
     df = pd.DataFrame(
@@ -311,7 +315,7 @@ def resolve_authors(
     author_names: list[str],
     *,
     ror_grounder: ssslm.Grounder,
-) -> list[Author | Organization]:
+) -> Sequence[Author | Organization]:
     """Get authors."""
     rv = []
     # wishing for better content in https://github.com/ElixirTeSS/TeSS/issues/1116
@@ -319,6 +323,8 @@ def resolve_authors(
         author_name = author_name.strip()
         if author_name.lower() in {"unknown", "unknown unknown"}:
             continue
+
+        author: Author | Organization
         if "orcid:" in author_name:
             # this means it's like "Valipour Kahrood, Hossein (orcid: 0000-0003-4166-0382)"
             name, _, orcid = author_name.partition("(orcid:")

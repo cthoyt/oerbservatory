@@ -162,9 +162,12 @@ def prepare_language_model_string(resource: EducationalResource) -> str:
     if resource.keywords:
         r += " ".join(v for keyword in resource.keywords for v in keyword.values())
     if resource.prerequisites:
-        r += resource.prerequisites
+        r += " " + resource.prerequisites
     if resource.learning_objectives:
-        r += resource.learning_objectives
+        r += " " + resource.learning_objectives
+    for xref in resource.xrefs or []:
+        if name := getattr(xref, "name", None):
+            r += " " + name
     return r
 
 

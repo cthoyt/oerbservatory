@@ -16,6 +16,7 @@ from pydantic import ByteSize
 from tqdm import tqdm
 
 from oerbservatory.model import (
+    EN,
     Author,
     EducationalResource,
     Organization,
@@ -30,15 +31,6 @@ __all__ = [
     "get_dalia",
 ]
 
-
-D = OUTPUT_DIR.joinpath("dalia")
-DALIA_PROCESSED_PATH = D.joinpath("dalia.jsonl")
-DALIA_TTL_PATH = OUTPUT_DIR.joinpath("dalia.ttl")
-DALIA_TFIDF_INDEX_PATH = D.joinpath("dalia-tfidf-index.tsv")
-DALIA_TFIDF_SIM_PATH = D.joinpath("dalia-tfidf-similarities.tsv")
-DALIA_TRANSFORMERS_INDEX_PATH = D.joinpath("dalia-transformers-index.tsv")
-DALIA_TRANSFORMERS_SIM_PATH = D.joinpath("dalia-transformers-similarities.tsv")
-DALIA_SQLITE_FTS_PATH = D.joinpath("dalia-fts-sqlite.db")
 
 ORCID_RE = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{3}(\d|X)$")
 
@@ -65,12 +57,11 @@ def parse(path: str | Path) -> list[EducationalResource]:
 
 def _convert(e: EducationalResourceDIF13) -> EducationalResource | None:
     rv = EducationalResource(
-        platform="dalia",
         reference=Reference(prefix="dalia.oer", identifier=str(e.uuid)),
         external_uri=e.links,
-        title={"en": e.title},
-        description={"en": e.description},
-        keywords=[{"en": keyword} for keyword in e.keywords],
+        title={EN: e.title},
+        description={EN: e.description},
+        keywords=[{EN: keyword} for keyword in e.keywords],
         authors=[_process_author(a) for a in e.authors],
         difficulty_level=e.proficiency_levels,
         languages=e.languages,
@@ -98,16 +89,9 @@ def _process_size(x: str | None) -> ByteSize | None:
 def _process_author(e: AuthorDIF13 | OrganizationDIF13) -> Author | Organization:
     match e:
         case AuthorDIF13():
-            return Author(
-                name=e.name,
-                orcid=e.orcid,
-            )
+            return Author(name=e.name, orcid=e.orcid)
         case OrganizationDIF13():
-            return Organization(
-                name=e.name,
-                ror=e.ror,
-                wikidata=e.wikidata,
-            )
+            return Organization(name=e.name, ror=e.ror, wikidata=e.wikidata)
         case _:
             raise TypeError
 
@@ -136,16 +120,21 @@ def get_dalia() -> list[EducationalResource]:
 def main(transformers: bool) -> None:
     """Process DALIA curation sheets."""
     resources = get_dalia()
-    write_resources_jsonl(resources, DALIA_PROCESSED_PATH)
+    dire = OUTPUT_DIR.joinpath("dalia")
+    write_resources_jsonl(resources, dire.joinpath("dalia.jsonl"))
 
-    write_sqlite_fti(resources, DALIA_SQLITE_FTS_PATH)
+    write_sqlite_fti(resources, dire.joinpath("dalia-fts-sqlite.db"))
 
     if transformers:
-        write_resources_tfidf(resources, DALIA_TFIDF_INDEX_PATH, DALIA_TFIDF_SIM_PATH)
+        write_resources_tfidf(
+            resources,
+            dire.joinpath("dalia-tfidf-index.tsv"),
+            dire.joinpath("dalia-tfidf-similarities.tsv"),
+        )
         write_resources_sentence_transformer(
             resources,
-            DALIA_TRANSFORMERS_INDEX_PATH,
-            DALIA_TRANSFORMERS_SIM_PATH,
+            dire.joinpath("dalia-transformers-index.tsv"),
+            dire.joinpath("dalia-transformers-similarities.tsv"),
         )
 
 

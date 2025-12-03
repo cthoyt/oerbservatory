@@ -27,10 +27,9 @@ classifiers = [
     "Framework :: Sphinx",
     "Natural Language :: English",
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: 3 :: Only",
     "Typing :: Typed",
     # TODO add your topics from the Trove controlled vocabulary (see https://pypi.org/classifiers)
@@ -47,13 +46,20 @@ license-files = [
     "LICENSE",
 ]
 
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "more_itertools", # missing from itertools in stdlib
     "tqdm", # progress bars
     "click",
     "more_click",
     "typing-extensions",
+    "dalia-dif>=0.0.16",
+    "tess-downloader>=0.0.5",
+    "pystow>=0.7.12",
+    "pandas",
+    "orcid_downloader",
+    "pyobo[gilda-slim]",
+    "rdflib",
 ]
 
 # see https://peps.python.org/pep-0735/ and https://docs.astral.sh/uv/concepts/dependencies/#dependency-groups
@@ -64,13 +70,9 @@ tests = [
 ]
 docs = [
     "sphinx>=8",
-    "sphinx-rtd-theme>=3.0","sphinx-click", 
+    "sphinx-rtd-theme>=3.0",
+    "sphinx-click",
     "sphinx_automodapi",
-    # Include if your project uses Pydantic:
-    # "autodoc_pydantic",
-    # To include LaTeX comments easily in your docs.
-    # If you uncomment this, don't forget to do the same in docs/conf.py
-    # texext
 ]
 lint = [
     "ruff",
@@ -80,7 +82,8 @@ typing = [
     "mypy",
     "pydantic",
     "click-types",
-    # You will probably have to add additional type stubs here, especially if you're using tox-uv
+    "types-requests",
+    "types-tabulate",
 ]
 docs-lint = [
     { include-group = "docs" },

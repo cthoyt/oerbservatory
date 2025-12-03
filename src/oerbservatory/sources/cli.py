@@ -1,71 +1,76 @@
 """CLI for OER sources."""
 
+import time
 from collections.abc import Callable
 
 import click
 from tqdm import tqdm
 
-from dalia_ingest.model import (
+from oerbservatory.model import (
     EducationalResource,
     write_resources_jsonl,
     write_resources_sentence_transformer,
     write_resources_tfidf,
     write_sqlite_fti,
 )
-from dalia_ingest.utils import ROOT
+from oerbservatory.sources.utils import OUTPUT_DIR
 
 __all__ = ["main"]
-
-OUTPUT_DIR = ROOT.joinpath("output")
-OUTPUT_DIR.mkdir(exist_ok=True)
 
 
 @click.command()
 def main() -> None:
     """Get OER sources."""
-    from dalia_ingest.sources.dalia import get_dalia
-    from dalia_ingest.sources.oerhub import get_oerhub
-    from dalia_ingest.sources.oersi import get_oersi
-    from dalia_ingest.sources.tess import get_tess
+    from oerbservatory.sources.dalia import get_dalia
+    from oerbservatory.sources.oerhub import get_oerhub
+    from oerbservatory.sources.tess import get_tess
 
-    functions: list[Callable[[], list[EducationalResource]]] = [
-        get_oerhub,
-        get_oersi,
+    source_getters: list[Callable[[], list[EducationalResource]]] = [
         get_tess,
         get_dalia,
+        get_oerhub,
+        # get_oersi,
     ]
-    resources: list[EducationalResource] = []
-    source_iterator = tqdm(functions, desc="OER source", leave=False)
-    for f in source_iterator:
-        key = f.__name__.removeprefix("get_")
-        source_iterator.set_description(key)
-        specific = f()
-        if not specific:
+    concat_sources: list[EducationalResource] = []
+    source_getters_it = tqdm(source_getters, desc="OER source", leave=False)
+    for get_resources in source_getters_it:
+        key = get_resources.__name__.removeprefix("get_")
+        source_getters_it.set_description(key)
+        resources = get_resources()
+        if not resources:
             tqdm.write(click.style(f"no resources found for {key}", fg="red"))
             continue
 
         d = OUTPUT_DIR.joinpath(key)
         d.mkdir(exist_ok=True)
-        d.joinpath(key)
 
+        tqdm.write(f"[{key}] outputting JSONL to {d}")
         write_resources_jsonl(resources, d.joinpath(f"{key}.jsonl"))
 
+        tqdm.write(f"[{key}] calculating TF-IDF vectors")
+        start = time.time()
+        write_resources_tfidf(
+            resources,
+            d.joinpath(f"{key}-tfidf-index.tsv"),
+            d.joinpath(f"{key}-tfidf-similarities.tsv"),
+        )
+        tqdm.write(f"[{key}] output TF-IDF vectors to {d} in {time.time() - start:.2f} seconds")
+
+        tqdm.write(f"[{key}] calculating SBERT vectors")
+        start = time.time()
+        write_resources_sentence_transformer(
+            resources,
+            d.joinpath(f"{key}-transformers-index.tsv"),
+            d.joinpath(f"{key}-tranformers-similarities.tsv"),
+        )
+        tqdm.write(f"[{key}] output SBERT vectors to {d} in {time.time() - start:.2f} seconds")
+
         if key == "dalia":
-            write_resources_tfidf(
-                resources,
-                d.joinpath(f"{key}-tfidf-index.tsv"),
-                d.joinpath(f"{key}-tfidf-similarities.tsv"),
-            )
-            write_resources_sentence_transformer(
-                resources,
-                d.joinpath(f"{key}-transformers-index.tsv"),
-                d.joinpath(f"{key}-tranformers-similarities.tsv"),
-            )
             write_sqlite_fti(resources, d.joinpath(f"{key}-sqlite-full-text-index.db"))
 
-        resources.extend(specific)
+        concat_sources.extend(resources)
 
-    click.echo(f"got {len(resources):,} resources")
+    click.echo(f"got {len(concat_sources):,} resources")
 
 
 if __name__ == "__main__":

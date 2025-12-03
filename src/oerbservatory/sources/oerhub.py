@@ -2,40 +2,44 @@
 
 import json
 from collections import Counter
-from typing import Any
+from typing import Any, cast
 
 import click
 import pyobo
+import pystow
 import requests
+import ssslm
 from curies import Reference
+from dalia_dif.namespace import SPDX_LICENSE
 from dalia_dif.utils import cleanup_languages
+from pydantic_extra_types.language_code import LanguageAlpha2
 from rdflib import SDO, URIRef
 from tabulate import tabulate
 from tqdm import tqdm
 
-from dalia_ingest.model import (
-    SPDX_LICENSE,
+from oerbservatory.model import (
     EducationalResource,
     InternationalizedStr,
     resolve_authors,
     write_resources_jsonl,
 )
-from dalia_ingest.utils import DALIA_MODULE
+from oerbservatory.sources.utils import OUTPUT_DIR
 
 __all__ = [
     "get_oerhub",
     "get_oerhub_raw",
 ]
 
-OERHUB_RAW_PATH = DALIA_MODULE.join(name="oerhub-raw.json")
-OERHUB_PROCESSED_PATH = DALIA_MODULE.join(name="oerhub.jsonl")
-OERHUB_TTL_PATH = DALIA_MODULE.join(name="oerhub.ttl")
+OERHUB_MODULE = pystow.module("oerbservatory", "sources", "oerhub")
+OERHUB_RAW_PATH = OERHUB_MODULE.join(name="oerhub-raw.json")
+OERHUB_PROCESSED_PATH = OERHUB_MODULE.join(name="oerhub.jsonl")
+OERHUB_TTL_PATH = OUTPUT_DIR.joinpath("oerhub.ttl")
 
 
 def get_oerhub_raw(*, force: bool = False) -> dict[str, Any]:
     """Get OERhub data."""
     if OERHUB_RAW_PATH.is_file() and not force:
-        return json.loads(OERHUB_RAW_PATH.read_text())
+        return cast(dict[str, Any], json.loads(OERHUB_RAW_PATH.read_text()))
 
     url = "https://oerhub.at/search"
     # there were 3143 on June 20, 2025
@@ -44,7 +48,7 @@ def get_oerhub_raw(*, force: bool = False) -> dict[str, Any]:
     data = res.json()
     with OERHUB_RAW_PATH.open("w") as file:
         json.dump(data, file, indent=2, ensure_ascii=False)
-    return data
+    return cast(dict[str, Any], data)
 
 
 LICENSES: dict[str, URIRef] = {
@@ -57,6 +61,7 @@ LICENSES: dict[str, URIRef] = {
     "CC-BY-NC-ND-4.0": SPDX_LICENSE["CC-BY-NC-ND-4.0"],
     "CC-BY-NC-SA-4.0": SPDX_LICENSE["CC-BY-NC-SA-4.0"],
     "CC-BY-SA-2.0": SPDX_LICENSE["CC-BY-SA-2.0"],
+    "CC-BY-NC-SA-3.0": SPDX_LICENSE["CC-BY-NC-SA-3.0"],
 }
 
 RESOURCE_TYPES = {
@@ -69,12 +74,13 @@ RESOURCE_TYPES = {
 }
 
 
-def get_oerhub() -> list[EducationalResource]:
+def get_oerhub(*, organization_grounder: ssslm.Grounder | None = None) -> list[EducationalResource]:  # noqa:C901
     """Get processed OERs from OERhub."""
     data = get_oerhub_raw()
     hits = data["data"]["hits"]["hits"]
 
-    ror_grounder = pyobo.get_grounder("ror")
+    if organization_grounder is None:
+        organization_grounder = pyobo.get_grounder("ror")
 
     mime_type_counter: Counter[str] = Counter()
     filetype_counter: Counter[str] = Counter()
@@ -97,15 +103,21 @@ def get_oerhub() -> list[EducationalResource]:
         # can be reconstructed with references
         source.pop("oea_object_direct_link", None)
 
-        title_1: list[InternationalizedStr] = general.pop("title")
+        title: InternationalizedStr | None
+        title_1: list[InternationalizedStr] | None = [
+            x for t in general.pop("title", []) if (x := _clean_d(t))
+        ] or None
         title_2: str | None = source.pop("oea_title", None)
         title_3: InternationalizedStr | None = source.pop("oea_title_ml", None)  # this is a dict
         if title_3:
-            title = _clean_d(title_3)
+            title_3 = _clean_d(title_3)
+
+        if title_3:
+            title = title_3
         elif title_1:
-            title = _clean_d(title_1[0])
+            title = title_1[0]
         elif title_2:
-            title = {"de": title_2}
+            title = {LanguageAlpha2("de"): title_2}
         else:
             continue
 
@@ -119,8 +131,8 @@ def get_oerhub() -> list[EducationalResource]:
 
         keywords: list[InternationalizedStr] = [
             {
-                "en": x["name_en"],
-                "de": x["name_de"],
+                LanguageAlpha2("en"): x["name_en"],
+                LanguageAlpha2("de"): x["name_de"],
             }
             for x in source.pop("oea_classification_01")
         ]
@@ -158,7 +170,9 @@ def get_oerhub() -> list[EducationalResource]:
             keywords=keywords,
             description=description,
             languages=languages,
-            authors=resolve_authors(source.pop("oea_authors", []), ror_grounder=ror_grounder),
+            authors=resolve_authors(
+                source.pop("oea_authors", []), organization_grounder=organization_grounder
+            ),
             xrefs=[
                 # TODO register all to bioregistry!
                 Reference(prefix=x["catalog"], identifier=x["entry"])
@@ -191,19 +205,23 @@ def get_oerhub() -> list[EducationalResource]:
     return resources
 
 
-def _echo_counter(c: Counter, title: str | None = None) -> None:
+def _echo_counter(c: Counter[str], title: str | None = None) -> None:
     if title:
         tqdm.write(title)
     tqdm.write(tabulate(c.most_common(), headers=["key", "count"]) + "\n\n")
 
 
-def _clean_d(d: dict[str, Any] | None) -> dict[str, str]:
+def _clean_d(d: InternationalizedStr | None) -> InternationalizedStr | None:
     if d is None:
         return None
     if "en" in d and "en_us_wp" in d:
-        del d["en_us_wp"]
+        del d[LanguageAlpha2("en_us_wp")]
         return d
-    return {"en" if k == "en_us_wp" else k: v for k, v in d.items()}
+    if "zxx" in d:  # no linguistic content
+        del d["zxx"]  # type:ignore
+    if not d:
+        return None
+    return {LanguageAlpha2("en") if k == "en_us_wp" else k: v for k, v in d.items()}
 
 
 @click.command()

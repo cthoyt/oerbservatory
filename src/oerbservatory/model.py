@@ -105,6 +105,9 @@ class EducationalResource(BaseModel):
     logo: str | None = None
     version: str | None = None
 
+    prerequisites: str | None = Field(None)
+    learning_objectives: str | None = Field(None)
+
     derived_from: str | None = Field(
         None,
         description="When deriving this OER object from an external OER resource, "
@@ -149,7 +152,8 @@ def write_resources_jsonl(resources: list[EducationalResource], path: Path) -> N
             file.write(line + "\n")
 
 
-def _get_document(resource: EducationalResource) -> str:
+def prepare_language_model_string(resource: EducationalResource) -> str:
+    """Prepare a string to put into a small language model."""
     r = ""
     if resource.title:
         r += " ".join(resource.title.values())
@@ -157,6 +161,10 @@ def _get_document(resource: EducationalResource) -> str:
         r += " ".join(resource.description.values())
     if resource.keywords:
         r += " ".join(v for keyword in resource.keywords for v in keyword.values())
+    if resource.prerequisites:
+        r += resource.prerequisites
+    if resource.learning_objectives:
+        r += resource.learning_objectives
     return r
 
 
@@ -176,7 +184,7 @@ def write_resources_tfidf(
 
     stop_words = stopwords.words(["english", "german"])
 
-    corpus = [_get_document(resource) for resource in resources]
+    corpus = [prepare_language_model_string(resource) for resource in resources]
     vectorizer = TfidfVectorizer(stop_words=stop_words, lowercase=True)
 
     vectors = vectorizer.fit_transform(corpus)
@@ -243,7 +251,7 @@ def write_resources_sentence_transformer(
     """Create a vector index with :mod:`sentence_transformers`."""
     if sentence_transformer is None:
         sentence_transformer = get_sentence_transformer()
-    corpus = [_get_document(resource) for resource in resources]
+    corpus = [prepare_language_model_string(resource) for resource in resources]
     vectors = sentence_transformer.encode(corpus, show_progress_bar=True)
     _xxx(
         vectors=vectors,

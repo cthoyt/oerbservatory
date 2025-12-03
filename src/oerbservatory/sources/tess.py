@@ -19,28 +19,17 @@ from tabulate import tabulate
 from tess_downloader import INSTANCES, DifficultyLevel, LearningMaterial, TeSSClient
 from tqdm import tqdm
 
-from oerbservatory.model import (
-    EN,
-    Author,
-    EducationalResource,
-    Organization,
-    resolve_authors,
-    write_resources_jsonl,
-)
+from oerbservatory.model import EN, Author, EducationalResource, Organization, resolve_authors
 
 __all__ = [
-    "get_single_tess",
     "get_all_tess",
-    "get_elixir",
-    "get_scilifelab",
-    "get_taxila",
+    "get_single_tess",
 ]
 
 TESS_LICENSE_DICTIONARY_URL = (
     "https://github.com/ElixirTeSS/TeSS/raw/refs/heads/master/config/dictionaries/licences.yml"
 )
 NO_MATERIALS = {"dresa", "explora"}
-
 
 OERBSERVATORY_MODULE = pystow.module("oerbservatory", "inputs", "tess")
 RESOURCE_TYPE_MAP: dict[str, URIRef | None] = {
@@ -248,22 +237,10 @@ def get_single_tess(
     return rv
 
 
-def get_elixir() -> list[EducationalResource]:
-    """Get processed OERs from the ELIXIR flagship instance of TeSS."""
-    client = TeSSClient(key="tess")
-    return get_single_tess(client)
-
-
-def get_taxila() -> list[EducationalResource]:
-    """Get processed OERs from Taxila."""
-    client = TeSSClient(key="taxila")
-    return get_single_tess(client)
-
-
-def get_scilifelab() -> list[EducationalResource]:
-    """Get processed OERs from SciLifeLab."""
-    client = TeSSClient(key="scilifelab")
-    return get_single_tess(client)
+def _get_license(attributes: LearningMaterial) -> URIRef | str | None:
+    if attributes.license is None or attributes.license == "notspecified":
+        return None
+    return get_key_to_license_uri()[attributes.license]
 
 
 def get_all_tess(
@@ -285,37 +262,12 @@ def get_all_tess(
     return resources
 
 
-PANTRAINING = ("pantraining", "https://pan-training.eu")
-
-license_counter: Counter[str] = Counter()
-
-
-def _get_license(attributes: LearningMaterial) -> URIRef | str | None:
-    if attributes.license is None or attributes.license == "notspecified":
-        return None
-
-    return get_key_to_license_uri()[attributes.license]
-
-
 @click.command()
 def main() -> None:
     """Convert TeSS to DALIA."""
     organization_grounder = pyobo.get_grounder("ror")
-
-    for key in tqdm(INSTANCES):
-        if key in NO_MATERIALS:
-            continue
-        client = TeSSClient(key=key)
-        resources = get_single_tess(
-            client=client,
-            organization_grounder=organization_grounder,
-        )
-        path = OERBSERVATORY_MODULE.join(name=f"{key}.json")
-        write_resources_jsonl(resources, path=path)
-
+    get_all_tess(organization_grounder=organization_grounder)
     click.echo(tabulate(unknown_resource_type.most_common()))
-    click.echo("")
-    click.echo(tabulate(license_counter.most_common()))
 
 
 if __name__ == "__main__":

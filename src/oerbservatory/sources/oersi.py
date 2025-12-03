@@ -5,14 +5,15 @@ from collections.abc import Iterable
 from typing import Any
 
 import click
-from dalia_ingest.model import (
-    EducationalResource,
-    write_resources_jsonl,
-)
-from dalia_ingest.utils import DALIA_MODULE
 from pydantic_extra_types.language_code import _index_by_alpha2
 from rdflib import URIRef
 from tqdm import tqdm
+
+from oerbservatory.model import (
+    EducationalResource,
+    write_resources_jsonl,
+)
+from oerbservatory.utils import DALIA_MODULE
 
 __all__ = [
     "get_oersi",

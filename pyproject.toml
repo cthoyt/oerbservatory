@@ -79,7 +79,8 @@ typing = [
     "pydantic",
     "click-types",
     "types-requests",
-    "types-tabulate"
+    "types-tabulate",
+    "orcid-downloader",
 ]
 docs-lint = [
     { include-group = "docs" },

@@ -2,7 +2,7 @@
 
 import json
 from collections import Counter
-from typing import Any
+from typing import Any, cast
 
 import click
 import pyobo
@@ -34,7 +34,7 @@ OERHUB_TTL_PATH = DALIA_MODULE.join(name="oerhub.ttl")
 def get_oerhub_raw(*, force: bool = False) -> dict[str, Any]:
     """Get OERhub data."""
     if OERHUB_RAW_PATH.is_file() and not force:
-        return json.loads(OERHUB_RAW_PATH.read_text())
+        return cast(dict[str, Any], json.loads(OERHUB_RAW_PATH.read_text()))
 
     url = "https://oerhub.at/search"
     # there were 3143 on June 20, 2025
@@ -43,7 +43,7 @@ def get_oerhub_raw(*, force: bool = False) -> dict[str, Any]:
     data = res.json()
     with OERHUB_RAW_PATH.open("w") as file:
         json.dump(data, file, indent=2, ensure_ascii=False)
-    return data
+    return cast(dict[str, Any], data)
 
 
 LICENSES: dict[str, URIRef] = {
@@ -190,7 +190,7 @@ def get_oerhub() -> list[EducationalResource]:  # noqa:C901
     return resources
 
 
-def _echo_counter(c: Counter, title: str | None = None) -> None:
+def _echo_counter(c: Counter[str], title: str | None = None) -> None:
     if title:
         tqdm.write(title)
     tqdm.write(tabulate(c.most_common(), headers=["key", "count"]) + "\n\n")

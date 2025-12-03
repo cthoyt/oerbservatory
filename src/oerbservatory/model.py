@@ -101,9 +101,9 @@ class EducationalResource(BaseModel):
     @property
     def best_title(self) -> str:
         """Get the best title, prioritizing english, then german, then whatever."""
-        for p in ["en", "de"]:
-            if p in self.title:
-                return self.title[p]
+        for language_code in ["en", "de"]:
+            if language_code in self.title:
+                return self.title[LanguageAlpha2(language_code)]
         return self.title[min(self.title)]
 
     @staticmethod

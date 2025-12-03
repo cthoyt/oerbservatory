@@ -20,6 +20,7 @@ from rdflib import Literal, URIRef
 from tqdm import tqdm
 
 __all__ = [
+    "EN",
     "Author",
     "EducationalResource",
     "Organization",
@@ -52,6 +53,9 @@ class Organization(BaseModel):
     wikidata: str | None = None
 
 
+#: The english language code.
+EN = LanguageAlpha2("en")
+
 type InternationalizedStr = dict[LanguageAlpha2, str]
 
 
@@ -63,8 +67,8 @@ class EducationalResource(BaseModel):
     uuid: UUID4 = Field(default_factory=uuid4)
     reference: Reference | None = None
 
-    platform: str = Field(
-        ...,
+    platform: str | None = Field(
+        None,
         description="A key for the OER platform where this resource came from",
     )
     authors: list[Author | Organization] = Field(default_factory=list)
@@ -82,7 +86,7 @@ class EducationalResource(BaseModel):
     media_types: list[URIRef] = Field(
         default_factory=list, description="somehow not the same as media types?"
     )
-    difficulty_level: list[URIRef] = Field(default_factory=list)
+    difficulty_level: URIRef | None = Field(None, description="The minimum difficult level")
     languages: list[ISO639_3] = Field(default_factory=list)
     audience: list[URIRef] = Field(default_factory=list)  # TODO add to RDF
 
@@ -314,7 +318,7 @@ def write_sqlite_fti(resources: list[EducationalResource], path: Path) -> None:
 def resolve_authors(
     author_names: list[str],
     *,
-    ror_grounder: ssslm.Grounder,
+    organization_grounder: ssslm.Grounder,
 ) -> Sequence[Author | Organization]:
     """Get authors."""
     rv = []
@@ -336,7 +340,7 @@ def resolve_authors(
             if len(matches) == 1:
                 author = Author(name=matches[0].name, orcid=matches[0].identifier)
             else:
-                matches = ror_grounder.get_matches(author_name)
+                matches = organization_grounder.get_matches(author_name)
                 if len(matches) == 1:
                     author = Organization(name=matches[0].name, ror=matches[0].identifier)
                 else:

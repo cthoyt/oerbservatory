@@ -53,6 +53,9 @@ dependencies = [
     "click",
     "more_click",
     "typing-extensions",
+    "dalia-dif",
+    "tess-downloader>=0.0.5",
+    "pystow>=0.7.12",
 ]
 
 # see https://peps.python.org/pep-0735/ and https://docs.astral.sh/uv/concepts/dependencies/#dependency-groups

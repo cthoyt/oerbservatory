@@ -3,35 +3,31 @@
 from collections.abc import Callable
 
 import click
-from dalia_ingest.model import (
+from tqdm import tqdm
+
+from oerbservatory.model import (
     EducationalResource,
     write_resources_jsonl,
     write_resources_sentence_transformer,
     write_resources_tfidf,
     write_sqlite_fti,
 )
-from dalia_ingest.utils import ROOT
-from tqdm import tqdm
+from oerbservatory.sources.utils import OUTPUT_DIR
 
 __all__ = ["main"]
-
-OUTPUT_DIR = ROOT.joinpath("output")
-OUTPUT_DIR.mkdir(exist_ok=True)
 
 
 @click.command()
 def main() -> None:
     """Get OER sources."""
-    from dalia_ingest.sources.dalia import get_dalia
-    from dalia_ingest.sources.oerhub import get_oerhub
-    from dalia_ingest.sources.oersi import get_oersi
-    from dalia_ingest.sources.tess import get_tess
+    from oerbservatory.sources.dalia import get_dalia
+    from oerbservatory.sources.tess import get_all_tess
 
     functions: list[Callable[[], list[EducationalResource]]] = [
-        get_oerhub,
-        get_oersi,
-        get_tess,
+        get_all_tess,
         get_dalia,
+        # get_oerhub,
+        # get_oersi,
     ]
     resources: list[EducationalResource] = []
     source_iterator = tqdm(functions, desc="OER source", leave=False)

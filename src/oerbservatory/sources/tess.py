@@ -5,19 +5,22 @@ See data dictionaries at https://github.com/ElixirTeSS/TeSS/tree/master/config/d
 
 from collections import Counter
 from collections.abc import Sequence
+from functools import lru_cache
 
 import click
 import pyobo
 import pystow
 import ssslm
 import tess_downloader
-from dalia_dif.namespace import BIBO, HCRT, MODALIA, SPDX_LICENSE
-from rdflib import SDO, URIRef
+from curies import Reference
+from dalia_dif.namespace import BIBO, HCRT, MODALIA
+from rdflib import SDO, Namespace, URIRef
 from tabulate import tabulate
 from tess_downloader import INSTANCES, DifficultyLevel, LearningMaterial, TeSSClient
 from tqdm import tqdm
 
 from oerbservatory.model import (
+    EN,
     Author,
     EducationalResource,
     Organization,
@@ -26,13 +29,20 @@ from oerbservatory.model import (
 )
 
 __all__ = [
+    "get_single_tess",
+    "get_all_tess",
     "get_elixir",
     "get_scilifelab",
     "get_taxila",
-    "get_tess",
 ]
 
-OERBSERVATORY_MODULE = pystow.module("oerbservatory")
+TESS_LICENSE_DICTIONARY_URL = (
+    "https://github.com/ElixirTeSS/TeSS/raw/refs/heads/master/config/dictionaries/licences.yml"
+)
+NO_MATERIALS = {"dresa", "explora"}
+
+
+OERBSERVATORY_MODULE = pystow.module("oerbservatory", "inputs", "tess")
 RESOURCE_TYPE_MAP: dict[str, URIRef | None] = {
     "video": SDO.VideoObject,
     "series of videos": SDO.VideoObject,
@@ -119,36 +129,34 @@ DIFFICULTY_LEVEL_MAP: dict[DifficultyLevel, URIRef | None] = {
     "intermediate": MODALIA["Competent"],
     "notspecified": None,
 }
-LICENSES: dict[str, URIRef] = {
-    "CC-BY-1.0".lower(): SPDX_LICENSE["CC-BY-1.0"],
-    "CC-BY-2.0".lower(): SPDX_LICENSE["CC-BY-2.0"],
-    "CC-BY-3.0".lower(): SPDX_LICENSE["CC-BY-3.0"],
-    "CC-BY-4.0".lower(): SPDX_LICENSE["CC-BY-4.0"],
-    "CC-BY-SA-4.0".lower(): SPDX_LICENSE["CC-BY-SA-4.0"],
-    "CC-BY-ND-4.0".lower(): SPDX_LICENSE["CC-BY-ND-4.0"],
-    "CC-BY-ND-2.0".lower(): SPDX_LICENSE["CC-BY-ND-2.0"],
-    "CC-BY-NC-4.0".lower(): SPDX_LICENSE["CC-BY-NC-4.0"],
-    "CC-BY-NC-2.0".lower(): SPDX_LICENSE["CC-BY-NC-2.0"],
-    "CC-BY-NC-SA-3.0".lower(): SPDX_LICENSE["CC-BY-NC-SA-3.0"],
-    "CC-BY-NC-SA-4.0".lower(): SPDX_LICENSE["CC-BY-NC-SA-4.0"],
-    "CC-BY-NC-ND-3.0".lower(): SPDX_LICENSE["CC-BY-NC-ND-3.0"],
-    "CC-BY-NC-ND-4.0".lower(): SPDX_LICENSE["CC-BY-NC-ND-4.0"],
-    "CC0-1.0".lower(): SPDX_LICENSE["CC0-1.0"],
-    "MIT".lower(): SPDX_LICENSE["MIT"],
-    "gpl-2.0".lower(): SPDX_LICENSE["GPL-2.0"],
-    "gpl-3.0-only".lower(): SPDX_LICENSE["GPL-3.0-only"],
-    "gpl-3.0".lower(): SPDX_LICENSE["GPL-3.0-or-later"],
-    "agpl-3.0-only".lower(): SPDX_LICENSE["AGPL-3.0-only"],
-    "unlicense".lower(): SPDX_LICENSE["Unlicense"],
-    "Apache-2.0".lower(): SPDX_LICENSE["Apache-2.0"],
-    "BSD-3-Clause".lower(): SPDX_LICENSE["BSD-3-Clause"],
-    "Artistic-2.0".lower(): SPDX_LICENSE["Artistic-2.0"],
-    "AFL-3.0".lower(): SPDX_LICENSE["AFL-3.0"],
-    "ODC-By-1.0".lower(): SPDX_LICENSE["ODC-By-1.0"],
-    "WTFPL".lower(): SPDX_LICENSE["WTFPL"],
-}
 
 unknown_resource_type: Counter[str] = Counter()
+
+LICENSE_ONT = Namespace("https://w3id.org/license-ontology/")
+REMAINING: dict[str, URIRef] = {
+    "notspecified": LICENSE_ONT["unspecified"],
+    "other-at": LICENSE_ONT["requires-attribution"],  # attribution
+    "other-closed": LICENSE_ONT["not-open"],  # not open
+    "other-open": LICENSE_ONT["open"],  # open
+    "other-nc": LICENSE_ONT["non-commercial"],  # not commercial
+    "other-pd": LICENSE_ONT["public-domain"],  # public domain
+}
+
+
+@lru_cache(1)
+def get_key_to_license_uri() -> dict[str, URIRef]:
+    """Get a dictionary from key to license URI based on TeSS's configuration."""
+    rv = {}
+    records = OERBSERVATORY_MODULE.ensure_yaml(url=TESS_LICENSE_DICTIONARY_URL)
+    for key, record in records.items():
+        if key in REMAINING:
+            rv[key] = REMAINING[key]
+        else:
+            license_uri = record["reference"]
+            if not license_uri.startswith("https://spdx.org") or not license_uri.endswith(".html"):
+                raise ValueError(f"{key} missing extension: {license_uri}")
+            rv[key] = URIRef(license_uri.removesuffix(".html"))
+    return rv
 
 
 def _get_resource_types(attributes: LearningMaterial) -> list[URIRef]:
@@ -166,53 +174,76 @@ def _get_resource_types(attributes: LearningMaterial) -> list[URIRef]:
 
 
 def _get_difficulty_levels(oer: tess_downloader.LearningMaterial) -> list[URIRef] | None:
-    if oer.difficult_level is None or oer.difficult_level == "notspecified":
+    if oer.difficulty_level is None or oer.difficulty_level == "notspecified":
         return None
-    if difficult_level_uri := DIFFICULTY_LEVEL_MAP.get(oer.difficulty_level):
-        return [difficult_level_uri]
+    if difficulty_level := DIFFICULTY_LEVEL_MAP.get(oer.difficulty_level):
+        return [difficulty_level]
     return None
 
 
 def _get_authors(
-    attributes: LearningMaterial, ror_grounder: ssslm.Grounder
+    attributes: LearningMaterial, organization_grounder: ssslm.Grounder
 ) -> Sequence[Author | Organization]:
-    return resolve_authors(attributes.authors or [], ror_grounder=ror_grounder)
+    return resolve_authors(attributes.authors or [], organization_grounder=organization_grounder)
 
 
-def get_tess_oers(
+def oer_from_tess(
+    client: TeSSClient,
+    material_wrapper: tess_downloader.LearningMaterialWrapper,
+    *,
+    organization_grounder: ssslm.Grounder,
+) -> EducationalResource | None:
+    """Get an educational resource from TeSS."""
+    material = material_wrapper.attributes
+    doi = material.doi
+    if doi:
+        if not doi.strip() or " " in doi:
+            doi = None
+        else:
+            doi = doi.removeprefix("https://doi.org/").removeprefix("http://doi.org/").strip()
+            doi = f"https://doi.org/{doi}"
+
+    reference = Reference(prefix=f"tess.{client.key}", identifier=str(material_wrapper.id))
+
+    educational_resource = EducationalResource(
+        reference=reference,
+        external_uri=doi,
+        title={EN: material.title.strip()},
+        license=_get_license(material),
+        description={EN: material.description.strip()},
+        keywords=[{EN: kw.strip()} for kw in material.keywords or []],
+        date_published=material.date_published,
+        resource_types=_get_resource_types(material),
+        difficulty_level=_get_difficulty_levels(material),
+        authors=_get_authors(material, organization_grounder=organization_grounder),
+    )
+    return educational_resource
+
+
+def get_single_tess(
     client: TeSSClient,
     *,
-    include_description: bool = True,
-    ror_grounder: ssslm.Grounder | None = None,
+    organization_grounder: ssslm.Grounder | None = None,
 ) -> list[EducationalResource]:
     """Get a TeSS graph."""
-    rv = []
-    if ror_grounder is None:
-        ror_grounder = pyobo.get_grounder("ror")
-    for material in client.get_materials():
-        attributes = material.attributes
-        doi = attributes.doi
-        if doi:
-            if not doi.strip() or " " in doi:
-                doi = None
-            else:
-                doi = doi.removeprefix("https://doi.org/").removeprefix("http://doi.org/").strip()
-                doi = f"https://doi.org/{doi}"
-        r = EducationalResource(
-            platform=client.key,
-            derived_from=client.base_url + material["links"]["self"],
-            external_uri=doi,
-            title={"en": attributes.title.strip()},
-            license=_get_license(attributes),
-            description={"en": attributes.description.strip()},
-            keywords=[{"en": kw.strip()} for kw in attributes.keywords or []],
-            date_published=attributes.get("date-published"),
-            resource_types=_get_resource_types(attributes),
-            difficulty_level=_get_difficulty_levels(attributes),
-            authors=_get_authors(attributes, ror_grounder=ror_grounder),
-        )
-        rv.append(r)
+    if organization_grounder is None:
+        organization_grounder = pyobo.get_grounder("ror")
 
+    try:
+        materials = client.get_materials()
+    except ValueError as e:
+        tqdm.write(f"[{client.key}] failed: {e}")
+        raise
+
+    rv = [
+        educational_resource
+        for material in materials
+        if (
+            educational_resource := oer_from_tess(
+                client, material, organization_grounder=organization_grounder
+            )
+        )
+    ]
     tqdm.write(f"[{client.key}] created {len(rv):,} records")
     return rv
 
@@ -220,34 +251,35 @@ def get_tess_oers(
 def get_elixir() -> list[EducationalResource]:
     """Get processed OERs from the ELIXIR flagship instance of TeSS."""
     client = TeSSClient(key="tess")
-    return get_tess_oers(client)
+    return get_single_tess(client)
 
 
 def get_taxila() -> list[EducationalResource]:
     """Get processed OERs from Taxila."""
     client = TeSSClient(key="taxila")
-    return get_tess_oers(client)
+    return get_single_tess(client)
 
 
 def get_scilifelab() -> list[EducationalResource]:
     """Get processed OERs from SciLifeLab."""
     client = TeSSClient(key="scilifelab")
-    return get_tess_oers(client)
+    return get_single_tess(client)
 
 
-def get_tess(
+def get_all_tess(
     *,
-    include_description: bool = True,
-    ror_grounder: ssslm.Grounder | None = None,
+    organization_grounder: ssslm.Grounder | None = None,
 ) -> list[EducationalResource]:
     """Get processed OERs from all known TeSS instances."""
-    ror_grounder = pyobo.get_grounder("ror")
+    if organization_grounder is None:
+        organization_grounder = pyobo.get_grounder("ror")
     resources = []
     for key in tqdm(INSTANCES):
         client = TeSSClient(key=key)
         resources.extend(
-            get_tess_oers(
-                client=client, include_description=include_description, ror_grounder=ror_grounder
+            get_single_tess(
+                client=client,
+                organization_grounder=organization_grounder,
             )
         )
     return resources
@@ -255,44 +287,30 @@ def get_tess(
 
 PANTRAINING = ("pantraining", "https://pan-training.eu")
 
-SPDX_GROUNDER = pyobo.get_grounder("spdx")
 license_counter: Counter[str] = Counter()
 
 
 def _get_license(attributes: LearningMaterial) -> URIRef | str | None:
-    license_text = attributes.licence.lower().strip()
-    if license_text is None or license_text == "notspecified":
+    if attributes.license is None or attributes.license == "notspecified":
         return None
 
-    if license_text in LICENSES:
-        return LICENSES[license_text]
-
-    if license_text not in license_counter:
-        tqdm.write(f"Missing license for {license_text}")
-
-    license_counter[license_text] += 1
-
-    # TODO upgrade to URI
-    return license_text
+    return get_key_to_license_uri()[attributes.license]
 
 
 @click.command()
-@click.option(
-    "--include-description",
-    is_flag=True,
-    help="Explicitly include the description, which creates a lot of visual noise in TTL, "
-    "so it's left out during development",
-)
-def main(include_description: bool) -> None:
+def main() -> None:
     """Convert TeSS to DALIA."""
-    ror_grounder = pyobo.get_grounder("ror")
+    organization_grounder = pyobo.get_grounder("ror")
 
     for key in tqdm(INSTANCES):
+        if key in NO_MATERIALS:
+            continue
         client = TeSSClient(key=key)
-        resources = get_tess_oers(
-            client=client, include_description=include_description, ror_grounder=ror_grounder
+        resources = get_single_tess(
+            client=client,
+            organization_grounder=organization_grounder,
         )
-        path = OERBSERVATORY_MODULE.join("inputs", "tess", name=f"{key}.json")
+        path = OERBSERVATORY_MODULE.join(name=f"{key}.json")
         write_resources_jsonl(resources, path=path)
 
     click.echo(tabulate(unknown_resource_type.most_common()))

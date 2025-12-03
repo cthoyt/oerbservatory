@@ -12,8 +12,10 @@ from dalia_dif.dif13 import (
     OrganizationDIF13,
     parse_dif13_row,
 )
-from dalia_ingest.model import (
-    OUTPUT_DIR,
+from pydantic import ByteSize
+from tqdm import tqdm
+
+from oerbservatory.model import (
     Author,
     EducationalResource,
     Organization,
@@ -22,9 +24,7 @@ from dalia_ingest.model import (
     write_resources_tfidf,
     write_sqlite_fti,
 )
-from dalia_ingest.utils import DALIA_MODULE, get_dif13_paths
-from pydantic import ByteSize
-from tqdm import tqdm
+from oerbservatory.sources.utils import OUTPUT_DIR
 
 __all__ = [
     "get_dalia",
@@ -33,7 +33,7 @@ __all__ = [
 
 D = OUTPUT_DIR.joinpath("dalia")
 DALIA_PROCESSED_PATH = D.joinpath("dalia.jsonl")
-DALIA_TTL_PATH = DALIA_MODULE.join(name="dalia.ttl")
+DALIA_TTL_PATH = OUTPUT_DIR.joinpath("dalia.ttl")
 DALIA_TFIDF_INDEX_PATH = D.joinpath("dalia-tfidf-index.tsv")
 DALIA_TFIDF_SIM_PATH = D.joinpath("dalia-tfidf-similarities.tsv")
 DALIA_TRANSFORMERS_INDEX_PATH = D.joinpath("dalia-transformers-index.tsv")
@@ -114,10 +114,16 @@ def _process_author(e: AuthorDIF13 | OrganizationDIF13) -> Author | Organization
 
 def _omni_process_row(path: Path, idx: int, row: dict[str, str]) -> EducationalResource | None:
     """Convert a row in a DALIA curation file to a resource, or return none if unable."""
-    ed13 = parse_dif13_row(path, idx, row, future=True)
+    ed13 = parse_dif13_row(path.name, idx, row, future=True)
     if ed13 is None:
         return None
     return _convert(ed13)
+
+
+def get_dif13_paths() -> list[Path]:
+    """Get DALIA curation paths."""
+    base = Path("/Users/cthoyt/dev/dalia-curation/curation")
+    return list(base.glob("*.tsv"))
 
 
 def get_dalia() -> list[EducationalResource]:

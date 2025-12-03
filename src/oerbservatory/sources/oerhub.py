@@ -9,17 +9,18 @@ import pyobo
 import requests
 from curies import Reference
 from dalia_dif.utils import cleanup_languages
-from dalia_ingest.model import (
+from rdflib import SDO, URIRef
+from tabulate import tabulate
+from tqdm import tqdm
+
+from oerbservatory.model import (
     SPDX_LICENSE,
     EducationalResource,
     InternationalizedStr,
     resolve_authors,
     write_resources_jsonl,
 )
-from dalia_ingest.utils import DALIA_MODULE
-from rdflib import SDO, URIRef
-from tabulate import tabulate
-from tqdm import tqdm
+from oerbservatory.utils import DALIA_MODULE
 
 __all__ = [
     "get_oerhub",

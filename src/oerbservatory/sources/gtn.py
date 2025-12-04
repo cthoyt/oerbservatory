@@ -83,6 +83,9 @@ def _process_material(  # noqa:C901
         "admin_install",
         "admin_install_yaml",
         "tours",
+        # this sometimes points to the dataset(s) used in the tutorial, but
+        # isn't the educational material itself
+        "zenodo_link",
     ]:
         record.pop(key, None)
 
@@ -129,10 +132,10 @@ def _process_material(  # noqa:C901
     ] or None
 
     keywords = []
-    if tags := record.pop("tags", []):
-        keywords.extend(tags)
-    if subtopic := record.pop("subtopic"):
-        keywords.append(subtopic)
+    for tag in record.pop("tags", None) or []:
+        keywords.append({lang: tag})
+    if subtopic := record.pop("subtopic", None):
+        keywords.append({lang: subtopic})
 
     rv = EducationalResource(
         reference=Reference(prefix="gtn", identifier=record.pop("short_id")),

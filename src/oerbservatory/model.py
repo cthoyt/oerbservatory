@@ -84,7 +84,13 @@ class EducationalResource(BaseModel):
         None,
         description="A key for the OER platform where this resource came from",
     )
-    authors: list[Author | Organization] = Field(default_factory=list)
+    authors: list[Author | Organization] = Field(
+        default_factory=list,
+        examples=[
+            Author(name="Charles Tapley Hoyt", orcid="0000-0003-4423-4370"),
+            Organization(name="NFDI", ror="05qj6w324"),
+        ],
+    )
     license: str | URIRef | Reference | None = None
     external_uri: str | None = None
     external_uri_extras: list[str] | None = None
@@ -94,7 +100,7 @@ class EducationalResource(BaseModel):
     description: InternationalizedStr | None = None
     disciplines: list[URIRef] = Field(default_factory=list)
 
-    keywords: list[InternationalizedStr] = Field(default_factory=list)
+    keywords: list[InternationalizedStr] | None = Field(None)
     date_published: datetime.datetime | datetime.date | None = None
     resource_types: list[URIRef] = Field(default_factory=list, description="Media types")
     media_types: list[URIRef] = Field(

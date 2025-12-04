@@ -9,15 +9,22 @@ There's also an API that takes care of parsing this and exposing it through the 
 https://galaxyproject.github.io/training-material/api/.
 
 """
+
+import textwrap
+from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+import click
+import dateutil.parser
 import pystow
 import requests
+from curies import Reference
+from dalia_dif.namespace import HCRT, MODALIA, modalia
+from tabulate import tabulate
 from tqdm import tqdm
-from collections import Counter
 
-from dalia_dif.namespace import MODALIA
 from oerbservatory.model import EducationalResource, write_resources_jsonl
 
 __all__ = [
@@ -25,9 +32,10 @@ __all__ = [
 ]
 
 MODULE = pystow.module("oerbservatory", "sources", "gtn")
+SITE_BASE = "https://training.galaxyproject.org/training-material"
 
-missing_field_counter = Counter()
-
+missing_field_counter: Counter[str] = Counter()
+examples = {}
 LEVEL_MAP = {
     "Advanced": MODALIA["Expert"],
     "Beginner": MODALIA["Beginner"],
@@ -38,6 +46,11 @@ LEVEL_MAP = {
 
 def get_gtn(refresh: bool = False) -> list[EducationalResource]:
     """Get learning materials from GTN."""
+    return list(iter_gtn(refresh=refresh))
+
+
+def iter_gtn(refresh: bool = False) -> Iterable[EducationalResource]:
+    """Iterate over learning materials from GTN."""
     topics = MODULE.ensure_json(
         url="https://training.galaxyproject.org/training-material/api/topics.json", force=refresh
     )
@@ -45,18 +58,43 @@ def get_gtn(refresh: bool = False) -> list[EducationalResource]:
         if topic == "admin":
             continue
         url = f"https://training.galaxyproject.org/training-material/api/topics/{topic}.json"
-        res_json = MODULE.ensure_json(url=url)
-        # res = requests.get(url, timeout=30)
-        # res.raise_for_status()
-        # res_json = res.json()
+        if False:
+            res = requests.get(url, timeout=30)
+            res.raise_for_status()
+            res_json = res.json()
+        else:
+            res_json = MODULE.ensure_json(url=url)
         for material in tqdm(res_json["materials"], leave=False, desc=f"GTN: {topic}"):
             if educational_resource := _process_material(topic, material):
                 yield educational_resource
 
 
-def _process_material(topic, record: dict[str, Any]) -> EducationalResource | None:
+def _process_material(  # noqa:C901
+    topic: str,
+    record: dict[str, Any],
+) -> EducationalResource | None:
     topic_name = record.pop("tutorial_name")
     url = f"https://github.com/galaxyproject/training-material/raw/refs/heads/main/topics/{topic}/tutorials/{topic_name}/tutorial.md"
+
+    for key in [
+        "js_requirements",
+        "layout",
+        "priority",
+        "admin_install",
+        "admin_install_yaml",
+        "tours",
+    ]:
+        record.pop(key, None)
+
+    lang: str = record.pop("lang", "en")
+
+    match record.pop("type"):
+        case "tutorial":
+            resource_type = modalia.Tutorial
+        case "slides":
+            resource_type = HCRT["slide"]
+        case x:
+            raise ValueError(f"unhandled type: {x}")
 
     try:
         if False:
@@ -69,7 +107,7 @@ def _process_material(topic, record: dict[str, Any]) -> EducationalResource | No
         tqdm.write(f"[{topic}-{topic_name}] was not able to download {url}")
         description = ""
     else:
-        rest = text.split('---', 3)[2].strip()
+        rest = text.split("---", 3)[2].strip()
         index = rest.find("\n")
         description = rest[:index]
 
@@ -81,16 +119,69 @@ def _process_material(topic, record: dict[str, Any]) -> EducationalResource | No
         fmt_text = "\n".join(f"- {key_point}" for key_point in key_points)
         description += f"\n\nThis tutorial covers the key points:\n{fmt_text}\n"
 
+    if record.pop("draft", False):
+        status = "Draft"
+    else:
+        status = "Active"
+
+    xrefs = [
+        Reference(prefix="edam", identifier=edam_id) for edam_id in record.pop("edam_ontology", [])
+    ] or None
+
+    keywords = []
+    if tags := record.pop("tags", []):
+        keywords.extend(tags)
+    if subtopic := record.pop("subtopic"):
+        keywords.append(subtopic)
+
     rv = EducationalResource(
-        title={"en": record.pop("title")},
-        description={"en": description.strip()},
-        learning_objectives="\n-".join(objectives) if (objectives := record.pop("objectives", [])) else None,
-        difficulty_level=LEVEL_MAP[level] if (level := record.get('level')) else None,
+        reference=Reference(prefix="gtn", identifier=record.pop("short_id")),
+        title={lang: record.pop("title")},
+        description={lang: description.strip()},
+        external_uri=f"{SITE_BASE}{record.pop('url')}",
+        learning_objectives="\n-".join(objectives)
+        if (objectives := record.pop("objectives", []))
+        else None,
+        difficulty_level=LEVEL_MAP[level] if (level := record.pop("level", None)) else None,
+        modified=dateutil.parser.parse(modified) if (modified := record.pop("mod_date")) else None,
+        published=dateutil.parser.parse(published)
+        if (published := record.pop("pub_date"))
+        else None,
+        version=str(version) if (version := record.pop("version", None)) else None,
+        license=record.pop("license", None),
+        status=status,
+        logo=record.pop("logo", None),
+        resource_types=[resource_type] if resource_type else None,
+        xrefs=xrefs,
+        keywords=keywords or None,
     )
     for key in record:
         missing_field_counter[key] += 1
+        if key not in examples and record[key]:
+            examples[key] = record[key], topic, topic_name
     return rv
 
 
-if __name__ == '__main__':
-    write_resources_jsonl(get_gtn(), Path.home().joinpath("gtn.jsonl"))
+@click.command()
+def main() -> None:
+    """Test processing GTN and make a tabular summary of unhandled fields."""
+    resources = list(iter_gtn())
+    click.echo(
+        tabulate(
+            [
+                (
+                    key,
+                    count,
+                    textwrap.shorten(str(examples[key][0]), 100),
+                    examples[key][1],
+                    examples[key][2],
+                )
+                for key, count in missing_field_counter.most_common()
+            ]
+        )
+    )
+    write_resources_jsonl(resources, Path.home().joinpath("gtn.jsonl"))
+
+
+if __name__ == "__main__":
+    main()

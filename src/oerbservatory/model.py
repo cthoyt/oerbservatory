@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import sqlite3
 import time
+import typing as t
 from collections.abc import Sequence
 from contextlib import closing
 from functools import lru_cache
@@ -21,7 +22,7 @@ import ssslm
 from curies import Reference
 from pydantic import UUID4, BaseModel, ByteSize, ConfigDict, Field
 from pydantic_extra_types.language_code import ISO639_3, LanguageAlpha2
-from rdflib import Literal, URIRef
+from rdflib import URIRef
 from tqdm import tqdm
 
 if TYPE_CHECKING:
@@ -64,11 +65,15 @@ class Organization(BaseModel):
 #: The english language code.
 EN = LanguageAlpha2("en")
 
+#: A dictionary from two-letter language codes to the value that goes with that language
 type InternationalizedStr = dict[LanguageAlpha2, str]
+
+#: Statues of an OER, borrowed from TeSS
+type Status = t.Literal["Archived", "Published", "Active", "Draft", "Development", "Under-Review"]
 
 
 class EducationalResource(BaseModel):
-    """Represents an educatioanl resource."""
+    """Represents an educational resource."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -79,7 +84,13 @@ class EducationalResource(BaseModel):
         None,
         description="A key for the OER platform where this resource came from",
     )
-    authors: list[Author | Organization] = Field(default_factory=list)
+    authors: list[Author | Organization] = Field(
+        default_factory=list,
+        examples=[
+            Author(name="Charles Tapley Hoyt", orcid="0000-0003-4423-4370"),
+            Organization(name="NFDI", ror="05qj6w324"),
+        ],
+    )
     license: str | URIRef | Reference | None = None
     external_uri: str | None = None
     external_uri_extras: list[str] | None = None
@@ -89,7 +100,7 @@ class EducationalResource(BaseModel):
     description: InternationalizedStr | None = None
     disciplines: list[URIRef] = Field(default_factory=list)
 
-    keywords: list[InternationalizedStr] = Field(default_factory=list)
+    keywords: list[InternationalizedStr] | None = Field(None)
     date_published: datetime.datetime | datetime.date | None = None
     resource_types: list[URIRef] = Field(default_factory=list, description="Media types")
     media_types: list[URIRef] = Field(
@@ -101,9 +112,18 @@ class EducationalResource(BaseModel):
 
     file_size: ByteSize | None = Field(None, description="file size, in bytes")
     file_formats: list[str] = Field(default_factory=list, examples=[["pdf"], ["mp4"]])
-    xrefs: list[Reference] = Field(default_factory=list)
+    xrefs: list[Reference] | None = Field(None)
     logo: str | None = None
     version: str | None = None
+
+    published: datetime.datetime | None = None
+    modified: datetime.datetime | None = None
+    # TODO update TeSS I/O with this
+
+    prerequisites: str | None = Field(None)
+    learning_objectives: str | None = Field(None)
+
+    status: Status | None = None
 
     derived_from: str | None = Field(
         None,
@@ -129,10 +149,10 @@ class EducationalResource(BaseModel):
         if x is None:
             return None
         elif isinstance(x, str):
-            graph.add((node, predicate, Literal(x)))
+            graph.add((node, predicate, rdflib.Literal(x)))
         elif isinstance(x, dict):
             for lang, text in x.items():
-                graph.add((node, predicate, Literal(text, lang=lang)))
+                graph.add((node, predicate, rdflib.Literal(text, lang=lang)))
         else:
             raise TypeError
 
@@ -141,6 +161,8 @@ def write_resources_jsonl(resources: list[EducationalResource], path: Path) -> N
     """Write resources as a JSONL file."""
     with path.open("w") as file:
         for resource in resources:
+            if not isinstance(resource, BaseModel):
+                raise TypeError(f"should be a model: {type(resource)} {resource}")
             line = resource.model_dump_json(
                 exclude_none=True,
                 exclude_defaults=True,
@@ -149,7 +171,8 @@ def write_resources_jsonl(resources: list[EducationalResource], path: Path) -> N
             file.write(line + "\n")
 
 
-def _get_document(resource: EducationalResource) -> str:
+def prepare_language_model_string(resource: EducationalResource) -> str:
+    """Prepare a string to put into a small language model."""
     r = ""
     if resource.title:
         r += " ".join(resource.title.values())
@@ -157,6 +180,13 @@ def _get_document(resource: EducationalResource) -> str:
         r += " ".join(resource.description.values())
     if resource.keywords:
         r += " ".join(v for keyword in resource.keywords for v in keyword.values())
+    if resource.prerequisites:
+        r += " " + resource.prerequisites
+    if resource.learning_objectives:
+        r += " " + resource.learning_objectives
+    for xref in resource.xrefs or []:
+        if name := getattr(xref, "name", None):
+            r += " " + name
     return r
 
 
@@ -176,7 +206,7 @@ def write_resources_tfidf(
 
     stop_words = stopwords.words(["english", "german"])
 
-    corpus = [_get_document(resource) for resource in resources]
+    corpus = [prepare_language_model_string(resource) for resource in resources]
     vectorizer = TfidfVectorizer(stop_words=stop_words, lowercase=True)
 
     vectors = vectorizer.fit_transform(corpus)
@@ -243,7 +273,7 @@ def write_resources_sentence_transformer(
     """Create a vector index with :mod:`sentence_transformers`."""
     if sentence_transformer is None:
         sentence_transformer = get_sentence_transformer()
-    corpus = [_get_document(resource) for resource in resources]
+    corpus = [prepare_language_model_string(resource) for resource in resources]
     vectors = sentence_transformer.encode(corpus, show_progress_bar=True)
     _xxx(
         vectors=vectors,
@@ -295,7 +325,10 @@ def _xxx(
                     )
                 )
 
-    df2 = pd.DataFrame(high_similarity)
+    df2 = pd.DataFrame(
+        high_similarity,
+        columns=["left_curie", "left_title", "right_curie", "right_titke", "similarity"],
+    )
     df2.to_csv(similarities_path, sep="\t", index=False)
 
 

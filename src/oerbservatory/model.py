@@ -306,7 +306,10 @@ def _xxx(
                     )
                 )
 
-    df2 = pd.DataFrame(high_similarity)
+    df2 = pd.DataFrame(
+        high_similarity,
+        columns=["left_curie", "left_title", "right_curie", "right_titke", "similarity"],
+    )
     df2.to_csv(similarities_path, sep="\t", index=False)
 
 

@@ -72,6 +72,8 @@ def main() -> None:
 
     click.echo(f"got {len(concat_sources):,} resources")
 
+    write_resources_jsonl(concat_sources, OUTPUT_DIR.joinpath("all.jsonl"))
+
     tqdm.write("[ALL] calculating TF-IDF vectors")
     start = time.time()
     write_resources_tfidf(

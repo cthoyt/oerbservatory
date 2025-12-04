@@ -7,12 +7,13 @@ from collections import Counter
 from collections.abc import Sequence
 from functools import lru_cache
 
+import bioregistry
 import click
 import pyobo
 import pystow
 import ssslm
 import tess_downloader
-from curies import Reference
+from curies import NamedReference, Reference, ReferenceTuple
 from dalia_dif.namespace import BIBO, HCRT, MODALIA
 from rdflib import SDO, URIRef
 from tabulate import tabulate
@@ -193,10 +194,13 @@ def map_tess_oer(
         license=_get_license(material),
         description={EN: material.description.strip()},
         keywords=[{EN: kw.strip()} for kw in material.keywords or []],
+        xrefs=_get_xrefs(material),
         date_published=material.date_published,
         resource_types=_get_resource_types(material),
         difficulty_level=_get_difficulty_levels(material),
         authors=_get_authors(material, organization_grounder=organization_grounder),
+        prerequisites=material.prerequisites,
+        learning_objectives=material.learning_objectives,
     )
     return educational_resource
 
@@ -226,6 +230,17 @@ def get_single_tess(
         )
     ]
     tqdm.write(f"[tess.{client.key}] created {len(rv):,} records")
+    return rv
+
+
+def _get_xrefs(material: tess_downloader.LearningMaterial) -> list[NamedReference] | None:
+    if not material.scientific_topics:
+        return None
+    rv: list[NamedReference] = []
+    for t in material.scientific_topics:
+        r: ReferenceTuple | None = bioregistry.get_default_converter().parse_uri(t.uri)
+        if r:
+            rv.append(r.to_pydantic(t.preferred_label))
     return rv
 
 

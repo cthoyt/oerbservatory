@@ -1,0 +1,102 @@
+"""Demonstrate converting DALIA DIF v1.3 to TeSS."""
+
+import json
+
+import pystow
+from dalia_dif.dif13 import EducationalResourceDIF13, read_dif13
+from dalia_dif.dif13.rdf import get_discipline_label
+from tess_downloader import LearningMaterial, TeSSClient, Topic
+from tqdm import tqdm
+
+from oerbservatory.model import EN, EducationalResource
+
+__all__ = [
+    "export_tess",
+]
+
+
+def export_tess(oer: EducationalResource) -> LearningMaterial:
+    """Export from an OERbservatory learning material to a TeSS learning material."""
+    return LearningMaterial(
+        slug=None,
+        title=oer.title[EN] if oer.title else None,
+        url=oer.external_uri,
+        description=oer.description[EN] if oer.description is not None else None,
+        keywords=[k[EN] for k in oer.keywords] if oer.keywords else None,
+        resource_type=None,
+        other_types=None,
+        scientific_topics=[
+            Topic(
+                preferred_label=get_discipline_label(discipline),
+                uri=str(discipline),
+            )
+            for discipline in oer.disciplines
+        ],
+        doi=None,
+        license=None,
+        contributors=None,
+        authors=None,
+        status=None,
+        version=None,
+        external_resources=None,
+        difficulty_level="notspecified",
+        target_audience=None,
+        prerequisites=None,
+        fields=None,
+        learning_objectives=None,
+        date_created=None,
+        date_modified=None,
+        date_published=None,
+        last_scraped=None,
+        scraper_record=None,
+        created_at=None,
+        updated_at=None,
+    )
+
+
+def _from_dalia_dif13(oer: EducationalResourceDIF13) -> LearningMaterial | None:
+    if not oer.description:
+        return None
+    return LearningMaterial(
+        slug=str(oer.uuid),  # the slug is the
+        title=oer.title,
+        url=oer.links[0],
+        description=oer.description,
+        keywords=oer.keywords,
+        # resource_type, # TODO needs the DALIA-TeSS mapping
+        # other_types
+        scientific_topics=[
+            Topic(
+                preferred_label=get_discipline_label(discipline),
+                uri=str(discipline),
+            )
+            for discipline in oer.disciplines
+        ],
+    )
+
+
+def main() -> None:
+    """Demonstrate converting DALIA DIF v1.3 to TeSS."""
+    url = "https://github.com/data-literacy-alliance/dalia-curation/raw/refs/heads/main/curation/NFDI4Chem.csv"
+    base_url = "https://test.tesshub.hzdr.de"
+    key = pystow.get_config("panosc", "test_key", raise_on_missing=True)
+    email = pystow.get_config("panosc", "test_email")
+    api_key = pystow.get_config("panosc", "test_api_token")
+    client = TeSSClient(key=key, base_url=base_url)
+    tess_oers = []
+    for dalia_oer in tqdm(read_dif13(url)):
+        if tess_oer := _from_dalia_dif13(dalia_oer):
+            tess_oers.append(tess_oer)
+            client.post(tess_oer, email=email, api_key=api_key)
+
+    with open("/Users/cthoyt/Desktop/tess_from_dalia.json", "w") as file:
+        json.dump(
+            [tess_oer.model_dump(exclude_none=True, exclude_unset=True) for tess_oer in tess_oers],
+            file,
+            indent=2,
+            ensure_ascii=False,
+        )
+
+
+if __name__ == "__main__":
+    main()

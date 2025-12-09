@@ -19,7 +19,13 @@ __all__ = ["main"]
 
 
 @click.command()
-def main() -> None:
+@click.option(
+    "--include-oersi",
+    is_flag=True,
+    help="This is false by default because OERSI has 90K learning materials - "
+    "this increases the complexity by two orders of magnitude.",
+)
+def main(include_oersi: bool) -> None:
     """Get OER sources."""
     from oerbservatory.sources.dalia import get_dalia
     from oerbservatory.sources.gtn import get_gtn
@@ -33,6 +39,11 @@ def main() -> None:
         get_gtn,
         # get_oersi,
     ]
+    if include_oersi:
+        from oerbservatory.sources.oersi import get_oersi
+
+        source_getters.append(get_oersi)
+
     concat_sources: list[EducationalResource] = []
     source_getters_it = tqdm(source_getters, desc="OER source", leave=False)
     for get_resources in source_getters_it:

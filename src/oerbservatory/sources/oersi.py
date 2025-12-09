@@ -2,18 +2,14 @@
 
 import json
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 
-import click
+import pystow
 from pydantic_extra_types.language_code import _index_by_alpha2
 from rdflib import URIRef
 from tqdm import tqdm
 
-from oerbservatory.model import (
-    EducationalResource,
-    write_resources_jsonl,
-)
-from oerbservatory.utils import DALIA_MODULE
+from oerbservatory.model import EducationalResource
 
 __all__ = [
     "get_oersi",
@@ -21,15 +17,14 @@ __all__ = [
 ]
 
 URL = "https://oersi.org/dumps/oer_data.ndjson.gz"
-OERSI_TTL_PATH = DALIA_MODULE.join(name="oersi.ttl")
-OERSI_JSON_PATH = DALIA_MODULE.join(name="oersi.json")
+MODULE = pystow.module("oerbservatory", "sources", "oersi")
 
 
 def get_oersi_raw(*, force: bool = False) -> Iterable[dict[str, Any]]:
     """Get OERSI data."""
-    with DALIA_MODULE.ensure_open_gz(url=URL, force=force) as file:
+    with MODULE.ensure_open_gz(url=URL, force=force) as file:  # type:ignore[call-overload]
         for line in file:
-            yield json.loads(line)
+            yield cast(dict[str, Any], json.loads(line))
 
 
 def get_oersi(*, force: bool = False) -> list[EducationalResource]:
@@ -80,14 +75,3 @@ def _process(record: dict[str, Any]) -> EducationalResource:
         disciplines=disciplines,
         languages=languages,
     )
-
-
-@click.command()
-def main() -> None:
-    """Process OERSI."""
-    resources = get_oersi()
-    write_resources_jsonl(resources, OERSI_JSON_PATH)
-
-
-if __name__ == "__main__":
-    main()

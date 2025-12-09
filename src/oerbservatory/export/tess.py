@@ -1,28 +1,38 @@
 """Demonstrate converting DALIA DIF v1.3 to TeSS."""
 
-import json
+from collections.abc import Callable
 
+import click
 import pystow
-from dalia_dif.dif13 import EducationalResourceDIF13, read_dif13
+from dalia_dif.dif13 import EducationalResourceDIF13
 from dalia_dif.dif13.rdf import get_discipline_label
 from tess_downloader import LearningMaterial, TeSSClient, Topic
 from tqdm import tqdm
 
 from oerbservatory.model import EN, EducationalResource
+from oerbservatory.sources.dalia import get_dalia
+from oerbservatory.sources.gtn import get_gtn
+from oerbservatory.sources.oerhub import get_oerhub
+from oerbservatory.sources.oersi import get_oersi
 
 __all__ = [
     "export_tess",
 ]
 
 
-def export_tess(oer: EducationalResource) -> LearningMaterial:
+def export_tess(oer: EducationalResource) -> LearningMaterial | None:
     """Export from an OERbservatory learning material to a TeSS learning material."""
+    title = oer.title.get(EN) if oer.title else None
+    description = oer.title.get(EN) if oer.description else None
+    if not title:
+        return None
+
     return LearningMaterial(
         slug=None,
-        title=oer.title[EN] if oer.title else None,
+        title=title,
         url=oer.external_uri,
-        description=oer.description[EN] if oer.description is not None else None,
-        keywords=[k[EN] for k in oer.keywords] if oer.keywords else None,
+        description=description,
+        keywords=[k[EN] for k in oer.keywords if EN in k] if oer.keywords else None,
         resource_type=None,
         other_types=None,
         scientific_topics=[
@@ -70,32 +80,33 @@ def _from_dalia_dif13(oer: EducationalResourceDIF13) -> LearningMaterial | None:
                 preferred_label=get_discipline_label(discipline),
                 uri=str(discipline),
             )
-            for discipline in oer.disciplines
+            for discipline in oer.disciplines or []
         ],
     )
 
 
-def main() -> None:
-    """Demonstrate converting DALIA DIF v1.3 to TeSS."""
-    url = "https://github.com/data-literacy-alliance/dalia-curation/raw/refs/heads/main/curation/NFDI4Chem.csv"
-    base_url = "https://test.tesshub.hzdr.de"
-    key = pystow.get_config("panosc", "test_key", raise_on_missing=True)
+@click.command()
+@click.option("--test", is_flag=True)
+@click.option("--include-oersi", is_flag=True)
+def main(test: bool, include_oersi: bool) -> None:
+    """Upload content to various mTeSS-X instances."""
     email = pystow.get_config("panosc", "test_email")
     api_key = pystow.get_config("panosc", "test_api_token")
-    client = TeSSClient(key=key, base_url=base_url)
-    tess_oers = []
-    for dalia_oer in tqdm(read_dif13(url)):
-        if tess_oer := _from_dalia_dif13(dalia_oer):
-            tess_oers.append(tess_oer)
-            client.post(tess_oer, email=email, api_key=api_key)
-
-    with open("/Users/cthoyt/Desktop/tess_from_dalia.json", "w") as file:
-        json.dump(
-            [tess_oer.model_dump(exclude_none=True, exclude_unset=True) for tess_oer in tess_oers],
-            file,
-            indent=2,
-            ensure_ascii=False,
-        )
+    functions: list[tuple[Callable[[], list[EducationalResource]], str]] = [
+        (get_dalia, "dalia"),
+        (get_gtn, "kcd"),
+        (get_oerhub, "oerhub"),
+    ]
+    if include_oersi:
+        functions.append((get_oersi, "oersi"))
+    for func, mtessx_space in functions:
+        base_url = "https://test.tesshub.hzdr.de/"
+        client = TeSSClient(key="test" if test else mtessx_space, base_url=base_url)
+        resources = func()
+        for resource in tqdm(resources, desc=mtessx_space):
+            tess_resource = export_tess(resource)
+            if tess_resource:
+                client.post(tess_resource, email=email, api_key=api_key)
 
 
 if __name__ == "__main__":
